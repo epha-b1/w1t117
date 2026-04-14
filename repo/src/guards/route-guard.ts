@@ -8,7 +8,8 @@ export const ROLE_ACCESS: Record<string, UserRole[]> = {
   notifications: ['administrator', 'sales_coordinator', 'planner', 'dispatcher'],
   audit: ['administrator', 'auditor'],
   admin_users: ['administrator'],
-  backup: ['administrator']
+  backup: ['administrator'],
+  jobs: ['administrator', 'planner', 'dispatcher']
 };
 
 export function canAccess(area: keyof typeof ROLE_ACCESS, role: UserRole | null): boolean {

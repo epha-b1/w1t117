@@ -13,6 +13,7 @@
   import AuditLog from './routes/AuditLog.svelte';
   import AdminUsers from './routes/AdminUsers.svelte';
   import Backup from './routes/Backup.svelte';
+  import Jobs from './routes/Jobs.svelte';
   import ShareView from './routes/ShareView.svelte';
   import NotFound from './routes/NotFound.svelte';
   import { pushToast } from './stores/toast.store';
@@ -28,6 +29,7 @@
     | { kind: 'audit' }
     | { kind: 'admin_users' }
     | { kind: 'backup' }
+    | { kind: 'jobs' }
     | { kind: 'not_found' };
 
   let route: Route = { kind: 'login' };
@@ -52,6 +54,7 @@
     if (s0 === 'ledger') return { kind: 'ledger' };
     if (s0 === 'notifications') return { kind: 'notifications' };
     if (s0 === 'audit') return { kind: 'audit' };
+    if (s0 === 'jobs') return { kind: 'jobs' };
     if (s0 === 'admin' && s1 === 'users') return { kind: 'admin_users' };
     if (s0 === 'admin' && s1 === 'backup') return { kind: 'backup' };
     return { kind: 'not_found' };
@@ -132,6 +135,8 @@
   <AdminUsers />
 {:else if route.kind === 'backup'}
   <Backup />
+{:else if route.kind === 'jobs'}
+  <Jobs />
 {:else}
   <NotFound />
 {/if}

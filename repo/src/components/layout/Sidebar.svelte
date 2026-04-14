@@ -10,6 +10,7 @@
     { label: 'Ledger', path: '/ledger', area: 'ledger' },
     { label: 'Notifications', path: '/notifications', area: 'notifications' },
     { label: 'Audit Log', path: '/audit', area: 'audit' },
+    { label: 'Jobs', path: '/jobs', area: 'jobs' },
     { label: 'Users', path: '/admin/users', area: 'admin_users' },
     { label: 'Backup', path: '/admin/backup', area: 'backup' }
   ];
