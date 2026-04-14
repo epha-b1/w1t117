@@ -14,6 +14,7 @@ import type {
 } from '../types/plan.types';
 import * as audit from './audit.service';
 import * as notif from './notification.service';
+import { authorize } from './authz.service';
 
 interface CreatePlanInput {
   title: string;
@@ -23,6 +24,7 @@ interface CreatePlanInput {
 }
 
 export async function createPlan(input: CreatePlanInput, actorId: string): Promise<Plan> {
+  await authorize(actorId, 'plan:create');
   const title = sanitizeText(input.title);
   if (!title) throw new Error('Title is required');
   const now = Date.now();
@@ -49,6 +51,7 @@ export async function createPlan(input: CreatePlanInput, actorId: string): Promi
 }
 
 export async function copyPlan(planId: string, newTitle: string, actorId: string): Promise<Plan> {
+  await authorize(actorId, 'plan:create');
   const source = await get('plans', planId);
   if (!source) throw new Error('Plan not found');
   const now = Date.now();
@@ -106,6 +109,7 @@ export async function updatePlan(
   patch: Partial<Pick<Plan, 'title' | 'status' | 'tags' | 'notes'>>,
   actorId: string
 ): Promise<Plan> {
+  await authorize(actorId, 'plan:update');
   const plan = await get('plans', id);
   if (!plan) throw new Error('Plan not found');
   const now = Date.now();
@@ -130,8 +134,10 @@ export async function updatePlan(
 
 export async function addBomItem(
   planId: string,
-  item: Omit<BomItem, 'id' | 'planId'>
+  item: Omit<BomItem, 'id' | 'planId'>,
+  actorId: string = 'system'
 ): Promise<BomItem> {
+  await authorize(actorId, 'plan:bom_mutate');
   const record: BomItem = {
     ...item,
     id: uid(),
@@ -146,7 +152,12 @@ export async function addBomItem(
   return record;
 }
 
-export async function updateBomItem(itemId: string, patch: Partial<BomItem>): Promise<BomItem> {
+export async function updateBomItem(
+  itemId: string,
+  patch: Partial<BomItem>,
+  actorId: string = 'system'
+): Promise<BomItem> {
+  await authorize(actorId, 'plan:bom_mutate');
   const existing = await get('bom_items', itemId);
   if (!existing) throw new Error('BOM item not found');
   const merged: BomItem = {
@@ -161,7 +172,11 @@ export async function updateBomItem(itemId: string, patch: Partial<BomItem>): Pr
   return merged;
 }
 
-export async function removeBomItem(itemId: string): Promise<void> {
+export async function removeBomItem(
+  itemId: string,
+  actorId: string = 'system'
+): Promise<void> {
+  await authorize(actorId, 'plan:bom_mutate');
   await del('bom_items', itemId);
 }
 
@@ -170,6 +185,7 @@ export async function saveVersion(
   changeNote: string,
   actorId: string
 ): Promise<PlanVersion> {
+  await authorize(actorId, 'plan:version');
   const note = sanitizeText(changeNote);
   if (!note) throw new Error('Change note is required for Save Version');
   const plan = await get('plans', planId);
@@ -213,6 +229,7 @@ export async function rollback(
   versionId: string,
   actorId: string
 ): Promise<PlanWithBom> {
+  await authorize(actorId, 'plan:rollback');
   const target = await get('plan_versions', versionId);
   if (!target || target.planId !== planId) throw new Error('Version not found');
   const plan = await get('plans', planId);
@@ -254,6 +271,7 @@ export async function generateShareToken(
   validDays: number,
   actorId: string
 ): Promise<ShareToken> {
+  await authorize(actorId, 'plan:share');
   const days = Math.max(1, Math.min(90, Math.floor(validDays) || 7));
   const token: ShareToken = {
     id: uid(),
@@ -282,6 +300,7 @@ export async function listShareTokens(planId: string): Promise<ShareToken[]> {
 }
 
 export async function revokeShareToken(tokenId: string, actorId: string): Promise<void> {
+  await authorize(actorId, 'plan:share');
   const t = await get('share_tokens', tokenId);
   if (!t) throw new Error('Token not found');
   await put('share_tokens', { ...t, revoked: true });

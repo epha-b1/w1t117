@@ -7,6 +7,7 @@ import type { CreateLeadInput, Lead, LeadFilters, LeadStatus } from '../types/le
 import type { User } from '../types/auth.types';
 import * as audit from './audit.service';
 import * as notif from './notification.service';
+import { authorize } from './authz.service';
 
 const SLA_MS = 24 * 60 * 60 * 1000;
 
@@ -35,6 +36,7 @@ function recordAssignment(userId: string) {
 }
 
 export async function createLead(input: CreateLeadInput, actorId: string): Promise<Lead> {
+  await authorize(actorId, 'lead:create');
   const title = sanitizeText(input.title);
   const requirements = sanitizeText(input.requirements);
   const contactName = sanitizeText(input.contactName);
@@ -127,6 +129,7 @@ export async function updateLead(
   patch: Partial<Omit<Lead, 'id' | 'history' | 'createdAt'>>,
   actorId: string
 ): Promise<Lead> {
+  await authorize(actorId, 'lead:update');
   const lead = await getLead(id);
   if (!lead) throw new Error('Lead not found');
   const now = Date.now();
@@ -157,6 +160,7 @@ export async function transitionStatus(
   actorId: string,
   note = ''
 ): Promise<Lead> {
+  await authorize(actorId, 'lead:status');
   const lead = await getLead(id);
   if (!lead) throw new Error('Lead not found');
   const allowed = STATUS_FLOW[lead.status];

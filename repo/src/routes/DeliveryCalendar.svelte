@@ -5,7 +5,11 @@
   import DeliveryForm from '../components/deliveries/DeliveryForm.svelte';
   import DeliveryDrawer from '../components/deliveries/DeliveryDrawer.svelte';
   import { deliveryService } from '../services/delivery.service';
+  import { exportQueue } from '../services/delivery-api.service';
+  import { jobService } from '../services/job.service';
+  import { leadService } from '../services/lead.service';
   import type { Delivery, DeliveryStatus } from '../types/delivery.types';
+  import type { Job } from '../types/job.types';
   import { session } from '../stores/session.store';
   import { pushToast } from '../stores/toast.store';
   import { formatCurrency } from '../utils/format';
@@ -22,6 +26,11 @@
   let drawerOpen = false;
 
   let weekAnchor = new Date();
+
+  let bulkJob: Job | null = null;
+  let bulkResult: Array<{ leadId: string; title: string; depotId: string; recipientZip: string }> | null = null;
+  let bulkPollTimer: number | null = null;
+  let bulkDepotId = 'depot-default';
 
   async function refresh() {
     deliveries = await deliveryService.listDeliveries({
@@ -85,6 +94,53 @@
     n.setDate(n.getDate() + days);
     weekAnchor = n;
   }
+
+  async function startBulkGenerate() {
+    if (!$session) return;
+    bulkResult = null;
+    try {
+      const leads = await leadService.listLeads({ status: 'confirmed' });
+      const input = {
+        leads: leads.map((l) => ({ id: l.id, title: l.title, recipientZip: '' })),
+        depotId: bulkDepotId
+      };
+      const job = await jobService.enqueue('bulk_delivery', input, $session.userId);
+      bulkJob = job;
+      if (bulkPollTimer) window.clearInterval(bulkPollTimer);
+      bulkPollTimer = window.setInterval(async () => {
+        const j = await jobService.getJob(job.id);
+        bulkJob = j ?? null;
+        if (j && (j.status === 'completed' || j.status === 'failed')) {
+          window.clearInterval(bulkPollTimer!);
+          bulkPollTimer = null;
+          if (j.status === 'completed') {
+            bulkResult = await jobService.getJobResult(j.id);
+            pushToast(`Generated ${bulkResult?.length ?? 0} delivery drafts`, 'success');
+          } else {
+            pushToast(j.errorMessage ?? 'Bulk generation failed', 'error');
+          }
+        }
+      }, 150) as unknown as number;
+    } catch (e) {
+      pushToast((e as Error).message, 'error');
+    }
+  }
+
+  async function handleExportQueue() {
+    if (!$session) return;
+    try {
+      const blob = await exportQueue($session.userId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `delivery-api-queue-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      pushToast('Queue exported', 'success');
+    } catch (e) {
+      pushToast((e as Error).message, 'error');
+    }
+  }
 </script>
 
 <AppShell pageTitle="Delivery Calendar">
@@ -109,7 +165,24 @@
       <span>{week[0]} to {week[6]}</span>
     {/if}
     <div class="spacer"></div>
+    <button on:click={startBulkGenerate} data-testid="bulk-generate-btn">Generate bulk drafts</button>
+    <button on:click={handleExportQueue} data-testid="export-queue-btn">Export Delivery API Queue</button>
     <button class="primary" on:click={() => (createOpen = true)}>+ New delivery</button>
+  </div>
+
+  {#if bulkJob}
+    <div class="bulk-status" data-testid="bulk-status">
+      Bulk job: {bulkJob.status} · {bulkJob.progress}%
+      {#if bulkJob.errorMessage}<span class="err">{bulkJob.errorMessage}</span>{/if}
+      {#if bulkResult}
+        <div class="bulk-result">{bulkResult.length} drafts generated from confirmed leads.</div>
+      {/if}
+    </div>
+  {/if}
+
+  <div class="help">
+    Delivery adapter is offline-only — scheduling & cancellation enqueue stub responses
+    that you can download via "Export Delivery API Queue". No network calls are made.
   </div>
 
   {#if view === 'list'}
@@ -204,4 +277,15 @@
     font-size: 11px;
     cursor: pointer;
   }
+  .bulk-status {
+    background: #fff7ed;
+    border: 1px solid #fed7aa;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+  .bulk-result { font-size: 12px; margin-top: 4px; }
+  .help { font-size: 12px; color: #6b7280; margin-bottom: 8px; }
+  .err { color: #991b1b; margin-left: 6px; }
 </style>

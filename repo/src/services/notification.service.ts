@@ -7,6 +7,7 @@ import type {
   NotificationStatus,
   NotificationSubscription
 } from '../types/notification.types';
+import { authorize, can } from './authz.service';
 
 export interface NotificationTemplate {
   id: string;
@@ -107,6 +108,7 @@ export async function getDndSettings(userId: string): Promise<DndSettings> {
 }
 
 export async function updateDndSettings(userId: string, settings: DndSettings): Promise<void> {
+  await authorize(userId, 'notification:settings');
   await put('notification_dnd', { ...settings, userId });
 }
 
@@ -120,6 +122,7 @@ export async function updateSubscription(
   eventType: string,
   subscribed: boolean
 ): Promise<void> {
+  await authorize(userId, 'notification:settings');
   await put('notification_subscriptions', { userId, eventType, subscribed });
 }
 
@@ -135,17 +138,55 @@ export async function dispatch(
   recipientId: string,
   variables: Record<string, string>
 ): Promise<Notification> {
-  const template = TEMPLATES[eventType] ?? TEMPLATES.lead_status_default;
+  const now = Date.now();
+  const template = TEMPLATES[eventType];
+
+  // Failure branch 1: unknown event type has no template — cannot render
+  if (!template) {
+    const failed: Notification = {
+      id: uid(),
+      templateId: eventType,
+      eventType,
+      variables,
+      recipientId,
+      status: 'failed',
+      dispatchedAt: null,
+      retryCount: 0,
+      createdAt: now,
+      renderedSubject: `(undeliverable: unknown template "${eventType}")`,
+      renderedBody: ''
+    };
+    await put('notifications', failed);
+    return failed;
+  }
+
+  // Failure branch 2: missing or invalid recipient
+  if (!recipientId || typeof recipientId !== 'string') {
+    const failed: Notification = {
+      id: uid(),
+      templateId: template.id,
+      eventType,
+      variables,
+      recipientId: recipientId ?? '',
+      status: 'failed',
+      dispatchedAt: null,
+      retryCount: 0,
+      createdAt: now,
+      renderedSubject: '(undeliverable: missing recipient)',
+      renderedBody: ''
+    };
+    await put('notifications', failed);
+    return failed;
+  }
+
   const { subject, body } = render(template, variables);
   const subscribed = await isSubscribed(recipientId, eventType);
-  const now = Date.now();
   const dnd = await getDnd(recipientId);
   const inDnd = isInDndWindow(new Date(now), dnd);
 
   let status: NotificationStatus = 'queued';
   let dispatchedAt: number | null = null;
   if (!subscribed) {
-    // user opted out — store as dispatched silently (no retry needed)
     status = 'dispatched';
     dispatchedAt = now;
   } else if (inDnd) {

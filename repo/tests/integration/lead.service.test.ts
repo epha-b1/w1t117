@@ -7,7 +7,7 @@ import { listEntries } from '../../src/services/audit.service';
 import type { CreateLeadInput } from '../../src/types/lead.types';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   clearSession();
   localStorage.clear();
   const req = indexedDB.deleteDatabase('forgeops');

@@ -6,6 +6,7 @@
   import BomEditor from '../components/plans/BomEditor.svelte';
   import BomDiff from '../components/plans/BomDiff.svelte';
   import { planService } from '../services/plan.service';
+  import { jobService } from '../services/job.service';
   import type {
     Plan,
     PlanVersion,
@@ -14,6 +15,7 @@
     BomDiff as BomDiffType,
     PlanStatus
   } from '../types/plan.types';
+  import type { Job } from '../types/job.types';
   import { session } from '../stores/session.store';
   import { pushToast } from '../stores/toast.store';
   import { formatDate } from '../utils/format';
@@ -38,6 +40,9 @@
   let compareA = '';
   let compareB = '';
   let compareDiff: BomDiffType | null = null;
+  let compareJobId: string | null = null;
+  let compareJob: Job | null = null;
+  let comparePollTimer: number | null = null;
 
   let shareOpen = false;
   let shareDays = 7;
@@ -125,8 +130,49 @@
   }
 
   async function runCompare() {
-    if (!compareA || !compareB) return;
-    compareDiff = await planService.diffById(compareA, compareB);
+    if (!compareA || !compareB || !$session) return;
+    compareDiff = null;
+    compareJob = null;
+    const vA = versions.find((v) => v.id === compareA);
+    const vB = versions.find((v) => v.id === compareB);
+    if (!vA || !vB) return;
+    try {
+      const job = await jobService.enqueue(
+        'bom_compare',
+        { a: vA.bom, b: vB.bom },
+        $session.userId
+      );
+      compareJobId = job.id;
+      await pollCompareJob();
+    } catch (e) {
+      pushToast((e as Error).message, 'error');
+    }
+  }
+
+  async function pollCompareJob() {
+    if (!compareJobId) return;
+    if (comparePollTimer) window.clearInterval(comparePollTimer);
+    comparePollTimer = window.setInterval(async () => {
+      if (!compareJobId) return;
+      const job = await jobService.getJob(compareJobId);
+      compareJob = job ?? null;
+      if (!job) return;
+      if (job.status === 'completed') {
+        const result = await jobService.getJobResult<BomDiffType>(job.id);
+        compareDiff = result;
+        stopPolling();
+      } else if (job.status === 'failed') {
+        pushToast(job.errorMessage ?? 'Compare failed', 'error');
+        stopPolling();
+      }
+    }, 150) as unknown as number;
+  }
+
+  function stopPolling() {
+    if (comparePollTimer) {
+      window.clearInterval(comparePollTimer);
+      comparePollTimer = null;
+    }
   }
 
   async function issueShare() {
@@ -240,7 +286,7 @@
   </form>
 </Modal>
 
-<Modal open={compareOpen} title="Compare versions" onClose={() => { compareOpen = false; compareDiff = null; }}>
+<Modal open={compareOpen} title="Compare versions" onClose={() => { compareOpen = false; compareDiff = null; compareJob = null; compareJobId = null; stopPolling(); }}>
   <div class="form" style="min-width: 420px">
     <label>Version A
       <select bind:value={compareA}>
@@ -254,7 +300,15 @@
         {#each versions as v}<option value={v.id}>v{v.version} · {v.changeNote}</option>{/each}
       </select>
     </label>
-    <button class="primary" on:click={runCompare} disabled={!compareA || !compareB}>Compute diff</button>
+    <button class="primary" on:click={runCompare} disabled={!compareA || !compareB || (compareJob && compareJob.status === 'running')}>
+      {compareJob && (compareJob.status === 'queued' || compareJob.status === 'running') ? 'Running…' : 'Compute diff (async)'}
+    </button>
+    {#if compareJob}
+      <div class="job-status" data-testid="compare-job-status">
+        Job {compareJob.status} · {compareJob.progress}%
+        {#if compareJob.errorMessage}<span class="err">{compareJob.errorMessage}</span>{/if}
+      </div>
+    {/if}
     {#if compareDiff}<BomDiff diff={compareDiff} />{/if}
   </div>
 </Modal>
@@ -321,4 +375,6 @@
   .muted { color: #888; font-style: italic; }
   .token { font-family: monospace; }
   button.link { background: transparent; border: none; color: #2563eb; cursor: pointer; }
+  .job-status { font-size: 12px; color: #555; }
+  .err { color: #991b1b; margin-left: 6px; }
 </style>

@@ -14,7 +14,7 @@ import { listEntries } from '../../src/services/audit.service';
 import { clearSession } from '../../src/stores/session.store';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   clearSession();
   localStorage.clear();
   const req = indexedDB.deleteDatabase('forgeops');
@@ -59,8 +59,11 @@ describe('authentication', () => {
   it('flags anomaly after >10 failed logins in 5 minutes', async () => {
     await ensureFirstRunSeed();
     resetFailedLogins();
+    // Use a nonexistent username so we exercise the unknown-user branch
+    // (no PBKDF2 verify). The anomaly counter and audit path are identical
+    // to bad-password attempts, but the test runs in a fraction of the time.
     for (let i = 0; i < 11; i++) {
-      await login('admin', 'bad').catch(() => {});
+      await login('ghost', 'bad').catch(() => {});
     }
     const anomaly = await listEntries({ action: 'anomaly_failed_logins' });
     expect(anomaly.length).toBeGreaterThan(0);

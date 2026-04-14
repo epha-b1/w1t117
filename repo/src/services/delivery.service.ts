@@ -16,6 +16,8 @@ import type {
 } from '../types/delivery.types';
 import * as audit from './audit.service';
 import * as notif from './notification.service';
+import { authorize } from './authz.service';
+import { getAdapter as getDeliveryApiAdapter } from './delivery-api.service';
 
 const MAX_MILES = 120;
 const SLOT_START = 8 * 60;
@@ -57,7 +59,11 @@ export async function listDepots(): Promise<Depot[]> {
   return await getAll('depots');
 }
 
-export async function addDepot(depot: Omit<Depot, 'id'>): Promise<Depot> {
+export async function addDepot(
+  depot: Omit<Depot, 'id'>,
+  actorId: string = 'system'
+): Promise<Depot> {
+  await authorize(actorId, 'delivery:create');
   const record: Depot = { ...depot, id: uid() };
   await put('depots', record);
   return record;
@@ -108,6 +114,7 @@ export async function createDelivery(
   input: CreateDeliveryInput,
   actorId: string
 ): Promise<Delivery> {
+  await authorize(actorId, 'delivery:create');
   const zip = sanitizeText(input.recipientZip);
   const coverage = await checkCoverage(zip, input.depotId);
   if (!coverage.covered) throw new Error(coverage.reason ?? 'Out of coverage');
@@ -153,6 +160,7 @@ export async function scheduleDelivery(
   slot: string,
   actorId: string
 ): Promise<Delivery> {
+  await authorize(actorId, 'delivery:schedule');
   if (!isValidDate(date)) throw new Error('Invalid date format (expected YYYY-MM-DD)');
   if (!isValidSlot(slot)) throw new Error('Invalid slot');
   const delivery = await get('deliveries', deliveryId);
@@ -172,12 +180,64 @@ export async function scheduleDelivery(
     resourceId: deliveryId,
     detail: { date, slot }
   });
+  try {
+    await getDeliveryApiAdapter().scheduleDelivery({
+      deliveryId,
+      recipientName: updated.recipientName,
+      recipientAddress: updated.recipientAddress,
+      recipientZip: updated.recipientZip,
+      scheduledDate: date,
+      scheduledSlot: slot,
+      items: updated.items
+    });
+  } catch {
+    /* offline adapter never throws; guard is defensive */
+  }
   await notif.dispatch('delivery_scheduled', actorId, {
     deliveryId,
     date,
     slot
   });
   return updated;
+}
+
+export async function cancelDelivery(
+  deliveryId: string,
+  actorId: string,
+  reason = ''
+): Promise<Delivery> {
+  await authorize(actorId, 'delivery:cancel');
+  const delivery = await get('deliveries', deliveryId);
+  if (!delivery) throw new Error('Delivery not found');
+  const updated: Delivery = {
+    ...delivery,
+    status: 'cancelled',
+    updatedAt: Date.now()
+  };
+  await put('deliveries', updated);
+  await audit.log({
+    actor: actorId,
+    action: 'delivery_cancelled',
+    resourceType: 'delivery',
+    resourceId: deliveryId,
+    detail: { reason }
+  });
+  try {
+    await getDeliveryApiAdapter().cancelDelivery(deliveryId);
+  } catch {
+    /* offline adapter */
+  }
+  return updated;
+}
+
+export async function fetchDeliveryStatus(
+  deliveryId: string,
+  actorId: string
+): Promise<{ local: Delivery | undefined; adapter: Awaited<ReturnType<ReturnType<typeof getDeliveryApiAdapter>['getStatus']>> }> {
+  await authorize(actorId, 'delivery:schedule');
+  const local = await get('deliveries', deliveryId);
+  const adapter = await getDeliveryApiAdapter().getStatus(deliveryId);
+  return { local, adapter };
 }
 
 export async function listDeliveries(filters: DeliveryFilters = {}): Promise<Delivery[]> {
@@ -214,6 +274,7 @@ export async function capturePod(
   pod: PodInput,
   actorId: string
 ): Promise<DeliveryPod> {
+  await authorize(actorId, 'delivery:pod');
   const delivery = await getDelivery(deliveryId);
   if (!delivery) throw new Error('Delivery not found');
   const signatureName = sanitizeText(pod.signatureName);
@@ -250,6 +311,7 @@ export async function logException(
   exception: { type: ExceptionType; reason: string },
   actorId: string
 ): Promise<DeliveryException> {
+  await authorize(actorId, 'delivery:exception');
   const delivery = await getDelivery(deliveryId);
   if (!delivery) throw new Error('Delivery not found');
   const reason = sanitizeText(exception.reason);
@@ -287,6 +349,8 @@ export const deliveryService = {
   calcFreight,
   createDelivery,
   scheduleDelivery,
+  cancelDelivery,
+  fetchDeliveryStatus,
   listDeliveries,
   getDelivery,
   capturePod,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BomItem } from '../../types/plan.types';
   import { planService } from '../../services/plan.service';
+  import { session } from '../../stores/session.store';
   import { formatCurrency } from '../../utils/format';
   export let planId: string;
   export let items: BomItem[] = [];
@@ -24,7 +25,7 @@
       unitCost: Number(newCost) || 0,
       length: newLength === '' ? undefined : Number(newLength),
       sortOrder: items.length
-    });
+    }, $session?.userId);
     newPart = '';
     newDesc = '';
     newQty = 1;
@@ -36,12 +37,36 @@
 
   async function updateField(item: BomItem, field: keyof BomItem, value: unknown) {
     const patch = { [field]: value } as Partial<BomItem>;
-    await planService.updateBomItem(item.id, patch);
+    await planService.updateBomItem(item.id, patch, $session?.userId);
     await onChange();
   }
 
+  function inputValue(e: Event): string {
+    return (e.currentTarget as HTMLInputElement).value;
+  }
+
+  function onPartChange(item: BomItem, e: Event) {
+    void updateField(item, 'partNumber', inputValue(e));
+  }
+  function onDescChange(item: BomItem, e: Event) {
+    void updateField(item, 'description', inputValue(e));
+  }
+  function onQtyChange(item: BomItem, e: Event) {
+    void updateField(item, 'quantity', Number(inputValue(e)));
+  }
+  function onUnitChange(item: BomItem, e: Event) {
+    void updateField(item, 'unit', inputValue(e));
+  }
+  function onUnitCostChange(item: BomItem, e: Event) {
+    void updateField(item, 'unitCost', Number(inputValue(e)));
+  }
+  function onLengthChange(item: BomItem, e: Event) {
+    const v = inputValue(e);
+    void updateField(item, 'length', v === '' ? undefined : Number(v));
+  }
+
   async function remove(item: BomItem) {
-    await planService.removeBomItem(item.id);
+    await planService.removeBomItem(item.id, $session?.userId);
     await onChange();
   }
 
@@ -65,36 +90,45 @@
     {#each items as item (item.id)}
       <tr>
         <td>
-          {#if readOnly}{item.partNumber}{:else}
-            <input value={item.partNumber} on:change={(e) => updateField(item, 'partNumber', (e.currentTarget as HTMLInputElement).value)} />
+          {#if readOnly}
+            {item.partNumber}
+          {:else}
+            <input value={item.partNumber} on:change={(e) => onPartChange(item, e)} />
           {/if}
         </td>
         <td>
-          {#if readOnly}{item.description}{:else}
-            <input value={item.description} on:change={(e) => updateField(item, 'description', (e.currentTarget as HTMLInputElement).value)} />
+          {#if readOnly}
+            {item.description}
+          {:else}
+            <input value={item.description} on:change={(e) => onDescChange(item, e)} />
           {/if}
         </td>
         <td>
-          {#if readOnly}{item.quantity}{:else}
-            <input type="number" min="0" value={item.quantity} on:change={(e) => updateField(item, 'quantity', Number((e.currentTarget as HTMLInputElement).value))} />
+          {#if readOnly}
+            {item.quantity}
+          {:else}
+            <input type="number" min="0" value={item.quantity} on:change={(e) => onQtyChange(item, e)} />
           {/if}
         </td>
         <td>
-          {#if readOnly}{item.unit}{:else}
-            <input value={item.unit} on:change={(e) => updateField(item, 'unit', (e.currentTarget as HTMLInputElement).value)} />
+          {#if readOnly}
+            {item.unit}
+          {:else}
+            <input value={item.unit} on:change={(e) => onUnitChange(item, e)} />
           {/if}
         </td>
         <td>
-          {#if readOnly}{formatCurrency(Math.round(item.unitCost * 100))}{:else}
-            <input type="number" min="0" step="0.01" value={item.unitCost} on:change={(e) => updateField(item, 'unitCost', Number((e.currentTarget as HTMLInputElement).value))} />
+          {#if readOnly}
+            {formatCurrency(Math.round(item.unitCost * 100))}
+          {:else}
+            <input type="number" min="0" step="0.01" value={item.unitCost} on:change={(e) => onUnitCostChange(item, e)} />
           {/if}
         </td>
         <td>
-          {#if readOnly}{item.length ?? ''}{:else}
-            <input type="number" min="0" step="0.1" value={item.length ?? ''} on:change={(e) => {
-              const v = (e.currentTarget as HTMLInputElement).value;
-              updateField(item, 'length', v === '' ? undefined : Number(v));
-            }} />
+          {#if readOnly}
+            {item.length ?? ''}
+          {:else}
+            <input type="number" min="0" step="0.1" value={item.length ?? ''} on:change={(e) => onLengthChange(item, e)} />
           {/if}
         </td>
         <td>{formatCurrency(Math.round(item.unitCost * 100) * item.quantity)}</td>
@@ -123,7 +157,7 @@
   {/if}
   <tfoot>
     <tr class="total-row">
-      <td colspan={readOnly ? 6 : 6}></td>
+      <td colspan="6"></td>
       <td>Total: {formatCurrency(totalCents)}</td>
       {#if !readOnly}<td></td>{/if}
     </tr>

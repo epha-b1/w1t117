@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { getDb, put, get, getAll, ALL_STORES, __resetForTests } from '../../src/services/db';
 
 async function resetDb() {
-  __resetForTests();
+  await __resetForTests();
   const req = indexedDB.deleteDatabase('forgeops');
   await new Promise<void>((resolve, reject) => {
     req.onsuccess = () => resolve();

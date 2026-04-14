@@ -5,7 +5,7 @@ import { clearSession } from '../../src/stores/session.store';
 import type { Job } from '../../src/types/job.types';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   clearSession();
   localStorage.clear();
   const req = indexedDB.deleteDatabase('forgeops');

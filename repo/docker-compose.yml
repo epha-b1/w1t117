@@ -1,8 +1,18 @@
 services:
   forgeops:
-    build: .
+    build:
+      context: .
+      target: runtime
     image: forgeops-console:latest
     container_name: forgeops-console
     ports:
       - "5000:5000"
     restart: unless-stopped
+
+  test:
+    build:
+      context: .
+      target: test
+    image: forgeops-console-test:latest
+    container_name: forgeops-console-test
+    command: ["npm", "test"]

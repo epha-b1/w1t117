@@ -5,6 +5,7 @@ import { writable } from 'svelte/store';
 import type { MainToWorker, WorkerToMain } from '../workers/protocol';
 import * as notif from './notification.service';
 import * as audit from './audit.service';
+import { authorize } from './authz.service';
 
 const LONG_RUN_MS = 30_000;
 const ERROR_RATE_WINDOW = 50;
@@ -47,6 +48,7 @@ async function updateJob(id: string, patch: Partial<Job>): Promise<Job | undefin
 }
 
 export async function enqueue(type: JobType, input: unknown, actorId = 'system'): Promise<Job> {
+  await authorize(actorId, 'job:enqueue');
   const id = uid();
   const inputRef = uid();
   await put('job_inputs', { id: inputRef, data: input });
@@ -145,15 +147,19 @@ async function checkErrorRate(): Promise<number> {
   return rate;
 }
 
-export async function getErrorRate(): Promise<number> {
-  const all = await getAll('jobs');
-  const finished = all
+export function computeErrorRate(jobs: Job[], window = ERROR_RATE_WINDOW): number {
+  const finished = jobs
     .filter((j) => j.status === 'completed' || j.status === 'failed')
     .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
-    .slice(0, ERROR_RATE_WINDOW);
+    .slice(0, window);
   if (finished.length === 0) return 0;
   const failed = finished.filter((j) => j.status === 'failed').length;
   return failed / finished.length;
+}
+
+export async function getErrorRate(): Promise<number> {
+  const all = await getAll('jobs');
+  return computeErrorRate(all);
 }
 
 export async function pause(jobId: string): Promise<void> {
@@ -168,7 +174,8 @@ export async function resume(jobId: string): Promise<void> {
   r.worker.postMessage({ cmd: 'resume', jobId } as MainToWorker);
 }
 
-export async function cancel(jobId: string): Promise<void> {
+export async function cancel(jobId: string, actorId: string = 'system'): Promise<void> {
+  await authorize(actorId, 'job:cancel');
   const r = running.get(jobId);
   if (r) {
     r.worker.postMessage({ cmd: 'cancel', jobId } as MainToWorker);
@@ -186,6 +193,13 @@ export async function getJob(id: string): Promise<Job | undefined> {
   return await get('jobs', id);
 }
 
+export async function getJobResult<T = unknown>(jobId: string): Promise<T | null> {
+  const job = await get('jobs', jobId);
+  if (!job || !job.resultRef) return null;
+  const rec = await get('job_results', job.resultRef);
+  return (rec?.data as T) ?? null;
+}
+
 export async function initJobStore(): Promise<void> {
   await refreshStore();
 }
@@ -197,6 +211,7 @@ export const jobService = {
   cancel,
   listJobs,
   getJob,
+  getJobResult,
   getErrorRate,
   initJobStore,
   jobsStore

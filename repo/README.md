@@ -56,6 +56,17 @@ A first-run banner prompts the administrator to change the password immediately.
 - **Dispatcher** — schedules deliveries, captures proof-of-delivery, logs exceptions
 - **Auditor** — read-only access to Audit Log and Ledger only
 
+## RBAC — enforced in the service layer
+Permission checks are enforced by `src/services/authz.service.ts` and run at the
+top of every mutating service function (leads, plans/BOM/versions/share tokens,
+deliveries / scheduling / POD / exceptions, ledger operations, user admin,
+backup import/export, delivery-API queue export, notification settings, job
+enqueue/cancel). Route guards in `src/guards/route-guard.ts` are kept as a
+first line of defence, but the service-layer check is authoritative — an
+unauthorized call throws `AuthorizationError` regardless of how it was
+invoked. The action → permitted roles map lives in `ACTION_PERMISSIONS` in
+`authz.service.ts`.
+
 ## Feature Walkthrough
 
 1. **Login** as `admin / Admin@12345`. Dismiss or complete the first-run password change.
@@ -67,7 +78,33 @@ A first-run banner prompts the administrator to change the password immediately.
 7. **Ledger** — Create an account, deposit, freeze, settle (one-time or milestone), refund, withdraw. Bank refs mask to `****NNNN`. Print invoice / voucher via browser print.
 8. **Audit Log** — Every auth / lead / plan / delivery / ledger / backup action is appended immutably. Entries older than 180 days are purged on app load.
 9. **Backup & Restore** — Plain JSON export with SHA-256 fingerprint check, or AES-256-GCM encrypted backup with user passphrase (PBKDF2 key derivation).
-10. **Jobs** — Enqueue BOM compare / bulk delivery generation / ledger reconciliation into Web Workers. Jobs report progress, support pause/resume/cancel, alert on >30 s runtimes, and flag when the 50-job rolling error rate exceeds 2 %.
+10. **Jobs** — The Jobs page is a read-only monitor for real async work.
+    Jobs are enqueued from the business pages that need them:
+    - **Plan Workspace → Compare versions** enqueues a `bom_compare` job and
+      renders the diff when the worker completes.
+    - **Delivery Calendar → "Generate bulk drafts"** enqueues a
+      `bulk_delivery` job that produces delivery drafts from confirmed leads.
+    - **Ledger → "Reconcile ledger"** enqueues a `ledger_reconcile` job that
+      walks every ledger entry and returns per-account totals.
+    Jobs report progress, support pause/resume/cancel, alert on >30 s
+    runtimes, and flag when the 50-job rolling error rate exceeds 2 %.
+
+## Delivery API adapter & queue export
+Scheduling or cancelling a delivery routes through the `OfflineStubAdapter`
+(`src/services/delivery-api.service.ts`), which writes a `delivery_api_queue`
+entry describing the operation plus a stub response. `getStatus` does the
+same. **Delivery Calendar → "Export Delivery API Queue"** downloads the
+current queue as JSON so it can be hand-replayed against a real backend
+later. The export is RBAC-gated and audit-logged. A notice under the
+toolbar explicitly calls out that the app makes no network calls.
+
+## Notification failure & retry
+`dispatch()` produces a `failed` notification when the event type has no
+template or the recipient id is missing or invalid — this is deterministic
+(no randomness). Failed notifications surface in the Notification Center's
+retry queue alongside DND-queued ones. **Retry** re-evaluates the recipient's
+DND window: inside DND it becomes `queued` (waits for `flushQueued`); outside
+DND it flips to `dispatched` and bumps `retryCount`.
 
 ## Offline Guarantees
 No network calls are made in any code path. The delivery API adapter ships as `OfflineStubAdapter` that returns mock responses and logs every call to `delivery_api_queue`; the queue can be exported as JSON for later integration testing.

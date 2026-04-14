@@ -7,7 +7,7 @@ import {
 } from '../../src/services/delivery-api.service';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   const req = indexedDB.deleteDatabase('forgeops');
   await new Promise<void>((resolve) => {
     req.onsuccess = () => resolve();

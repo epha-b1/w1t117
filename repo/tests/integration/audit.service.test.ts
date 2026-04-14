@@ -4,7 +4,7 @@ import { log, listEntries, purgeOldEntries } from '../../src/services/audit.serv
 import { clearSession } from '../../src/stores/session.store';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   clearSession();
   localStorage.clear();
   const req = indexedDB.deleteDatabase('forgeops');

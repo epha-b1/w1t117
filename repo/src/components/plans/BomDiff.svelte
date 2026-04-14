@@ -1,7 +1,11 @@
 <script lang="ts">
-  import type { BomDiff } from '../../types/plan.types';
+  import type { BomDiff, BomItem } from '../../types/plan.types';
   import { formatCurrency } from '../../utils/format';
   export let diff: BomDiff;
+  function field(item: BomItem, key: string): string {
+    const v = (item as unknown as Record<string, unknown>)[key];
+    return v == null ? '' : String(v);
+  }
 </script>
 
 <div class="diff">
@@ -33,8 +37,8 @@
         <div class="changes">
           {#each m.changedFields as f}
             <div class="change">
-              {f}: <span class="before">{String(m.before[f as keyof typeof m.before] ?? '')}</span>
-              → <span class="after">{String(m.after[f as keyof typeof m.after] ?? '')}</span>
+              {f}: <span class="before">{field(m.before, f)}</span>
+              → <span class="after">{field(m.after, f)}</span>
             </div>
           {/each}
         </div>

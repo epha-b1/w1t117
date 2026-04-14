@@ -11,13 +11,18 @@ import type {
   VoucherData
 } from '../types/ledger.types';
 import * as audit from './audit.service';
+import { authorize } from './authz.service';
 
-function toCents(amount: number): number {
+export function toCents(amount: number): number {
   return Math.round(Number(amount) * 100);
 }
 
-function assertPositive(cents: number): void {
+export function assertPositive(cents: number): void {
   if (!Number.isFinite(cents) || cents <= 0) throw new Error('Amount must be positive');
+}
+
+export function availableBalance(balance: number, frozen: number): number {
+  return balance - frozen;
 }
 
 export async function createAccount(
@@ -27,6 +32,7 @@ export async function createAccount(
   actorId: string,
   openingBalance = 0
 ): Promise<LedgerAccount> {
+  await authorize(actorId, 'ledger:create');
   const acct: LedgerAccount = {
     id: uid(),
     referenceId,
@@ -66,6 +72,7 @@ export async function depositToAccount(
   actorId: string,
   note = ''
 ): Promise<LedgerAccount> {
+  await authorize(actorId, 'ledger:mutate');
   assertPositive(cents);
   const acct = await getAccount(accountId);
   if (!acct) throw new Error('Account not found');
@@ -114,6 +121,7 @@ export async function freeze(
   actorId: string,
   note = ''
 ): Promise<LedgerEntry> {
+  await authorize(actorId, 'ledger:mutate');
   const cents = toCents(amount);
   assertPositive(cents);
   const acct = await getAccount(accountId);
@@ -143,6 +151,7 @@ export async function unfreeze(
   actorId: string,
   note = ''
 ): Promise<LedgerEntry> {
+  await authorize(actorId, 'ledger:mutate');
   const cents = toCents(amount);
   assertPositive(cents);
   const acct = await getAccount(accountId);
@@ -173,6 +182,7 @@ export async function settle(
   actorId: string,
   note = ''
 ): Promise<LedgerEntry> {
+  await authorize(actorId, 'ledger:mutate');
   const cents = toCents(amount);
   assertPositive(cents);
   const acct = await getAccount(accountId);
@@ -205,6 +215,7 @@ export async function refund(
   actorId: string,
   note = ''
 ): Promise<LedgerEntry> {
+  await authorize(actorId, 'ledger:mutate');
   const cents = toCents(amount);
   assertPositive(cents);
   const acct = await getAccount(accountId);
@@ -227,6 +238,7 @@ export async function withdraw(
   actorId: string,
   note = ''
 ): Promise<LedgerEntry> {
+  await authorize(actorId, 'ledger:mutate');
   const cents = toCents(amount);
   assertPositive(cents);
   const acct = await getAccount(accountId);
@@ -253,6 +265,11 @@ export async function withdraw(
 export async function listEntries(accountId: string): Promise<LedgerEntry[]> {
   const entries = await getAllByIndex('ledger_entries', 'by_account', accountId);
   return entries.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export async function collectAllEntries(actorId: string): Promise<LedgerEntry[]> {
+  await authorize(actorId, 'ledger:reconcile');
+  return await getAll('ledger_entries');
 }
 
 export async function generateInvoice(accountId: string): Promise<InvoiceData> {
@@ -299,6 +316,7 @@ export const ledgerService = {
   refund,
   withdraw,
   listEntries,
+  collectAllEntries,
   generateInvoice,
   generateVoucher,
   maskBankRef

@@ -67,6 +67,11 @@
     await refresh();
   }
 
+  function handleSubChange(eventType: string, e: Event) {
+    const target = e.currentTarget as HTMLInputElement;
+    void updateSub(eventType, target.checked);
+  }
+
   $: unreadCount = list.filter((n) => !n.read).length;
   $: eventTypes = Object.keys(TEMPLATES);
   $: subMap = Object.fromEntries(subs.map((s) => [s.eventType, s.subscribed]));
@@ -127,7 +132,7 @@
                 <input
                   type="checkbox"
                   checked={subMap[et] !== false}
-                  on:change={(e) => updateSub(et, (e.currentTarget as HTMLInputElement).checked)}
+                  on:change={(e) => handleSubChange(et, e)}
                 />
                 {et}
               </label>

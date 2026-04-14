@@ -1,4 +1,4 @@
-export type DeliveryStatus = 'scheduled' | 'in_transit' | 'delivered' | 'exception';
+export type DeliveryStatus = 'scheduled' | 'in_transit' | 'delivered' | 'exception' | 'cancelled';
 export type ExceptionType = 'reschedule' | 'refused' | 'loss_damage';
 
 export interface DeliveryItem {

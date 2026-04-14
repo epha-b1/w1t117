@@ -10,6 +10,7 @@ import {
 } from '../stores/session.store';
 import type { Session, User, UserRole } from '../types/auth.types';
 import * as audit from './audit.service';
+import { authorize } from './authz.service';
 
 const DEFAULT_ADMIN = {
   username: 'admin',
@@ -60,6 +61,7 @@ export async function register(
   role: UserRole,
   actorId: string
 ): Promise<User> {
+  await authorize(actorId, 'user:create');
   const existing = await findByUsername(username);
   if (existing) throw new Error('Username already exists');
   if (password.length < 8) throw new Error('Password must be at least 8 characters');
@@ -91,6 +93,7 @@ export async function updateUser(
   patch: Partial<Pick<User, 'role' | 'isActive'>>,
   actorId: string
 ): Promise<User> {
+  await authorize(actorId, 'user:update');
   const users = await listUsers();
   const user = users.find((u) => u.id === userId);
   if (!user) throw new Error('User not found');

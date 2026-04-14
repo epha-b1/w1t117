@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { session, clearSession } from '../../stores/session.store';
+  import { session } from '../../stores/session.store';
+  import { authService } from '../../services/auth.service';
   import { navigate } from '../../router';
 
-  function handleLogout() {
-    clearSession();
+  async function handleLogout() {
+    await authService.logout();
     navigate('/login');
   }
 </script>

@@ -5,7 +5,7 @@ import { ensureFirstRunSeed, listUsers } from '../../src/services/auth.service';
 import { clearSession } from '../../src/stores/session.store';
 
 async function freshDb() {
-  __resetForTests();
+  await __resetForTests();
   clearSession();
   localStorage.clear();
   const req = indexedDB.deleteDatabase('forgeops');

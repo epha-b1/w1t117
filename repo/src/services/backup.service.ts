@@ -7,8 +7,31 @@ import {
 } from '../utils/crypto';
 import type { StoreName } from '../types/db.types';
 import * as audit from './audit.service';
+import { authorize } from './authz.service';
 
 export const BACKUP_VERSION = '1';
+
+export function validateExportBundle(raw: unknown): { ok: true; bundle: ExportBundle } | { ok: false; error: string } {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'Bundle is not an object' };
+  const b = raw as Record<string, unknown>;
+  if (typeof b.version !== 'string') return { ok: false, error: 'Missing version' };
+  if (b.version !== BACKUP_VERSION) return { ok: false, error: 'Unsupported backup version' };
+  if (typeof b.sha256 !== 'string' || b.sha256.length !== 64) return { ok: false, error: 'Missing or malformed sha256' };
+  if (typeof b.exportedAt !== 'number') return { ok: false, error: 'Missing exportedAt' };
+  if (!b.stores || typeof b.stores !== 'object') return { ok: false, error: 'Missing stores' };
+  return { ok: true, bundle: b as unknown as ExportBundle };
+}
+
+export function validateEncryptedBundle(raw: unknown): { ok: true } | { ok: false; error: string } {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'Bundle is not an object' };
+  const b = raw as Record<string, unknown>;
+  if (b.version !== '1') return { ok: false, error: 'Unsupported encrypted bundle version' };
+  if (typeof b.sha256 !== 'string' || b.sha256.length !== 64) return { ok: false, error: 'Missing sha256' };
+  if (typeof b.salt !== 'string' || !b.salt) return { ok: false, error: 'Missing salt' };
+  if (typeof b.iv !== 'string' || !b.iv) return { ok: false, error: 'Missing iv' };
+  if (typeof b.data !== 'string' || !b.data) return { ok: false, error: 'Missing data' };
+  return { ok: true };
+}
 
 export interface ExportBundle {
   version: string;
@@ -32,6 +55,7 @@ async function collectData(): Promise<Record<string, unknown[]>> {
 }
 
 export async function exportData(actorId?: string): Promise<Blob> {
+  await authorize(actorId ?? 'system', 'backup:export');
   const stores = await collectData();
   const payload = { version: BACKUP_VERSION, exportedAt: Date.now(), stores };
   const serialized = JSON.stringify(payload);
@@ -52,6 +76,7 @@ export async function exportData(actorId?: string): Promise<Blob> {
 
 export async function importData(file: File, actorId?: string): Promise<ImportResult> {
   try {
+    await authorize(actorId ?? 'system', 'backup:import');
     const text = await file.text();
     const bundle = JSON.parse(text) as Partial<ExportBundle>;
     if (!bundle.version || !bundle.sha256 || !bundle.stores) {
@@ -82,6 +107,7 @@ export async function importData(file: File, actorId?: string): Promise<ImportRe
 }
 
 export async function exportEncrypted(passphrase: string, actorId?: string): Promise<Blob> {
+  await authorize(actorId ?? 'system', 'backup:export');
   const stores = await collectData();
   const payload = { version: BACKUP_VERSION, exportedAt: Date.now(), stores };
   const serialized = JSON.stringify(payload);
@@ -104,6 +130,7 @@ export async function importEncrypted(
   actorId?: string
 ): Promise<ImportResult> {
   try {
+    await authorize(actorId ?? 'system', 'backup:import');
     const text = await file.text();
     const bundle = JSON.parse(text) as EncryptedBundle;
     if (!bundle || bundle.version !== '1' || !bundle.data || !bundle.iv || !bundle.salt || !bundle.sha256) {

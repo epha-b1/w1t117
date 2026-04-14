@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { jobService } from '../../services/job.service';
+  import { session } from '../../stores/session.store';
   import ProgressBar from '../common/ProgressBar.svelte';
   import type { Job } from '../../types/job.types';
   import { formatDate } from '../../utils/format';
@@ -13,20 +14,23 @@
     return unsubscribe;
   });
 
-  async function demoBomCompare() {
-    const fake = Array.from({ length: 20 }, (_, i) => ({
-      id: `a${i}`, planId: 'p', partNumber: `P${i}`, description: 'x',
-      quantity: i, unit: 'ea', unitCost: 10, sortOrder: i
-    }));
-    const b = fake.map((f) => ({ ...f, quantity: f.quantity + (f.partNumber === 'P5' ? 99 : 0) }));
-    await jobService.enqueue('bom_compare', { a: fake, b });
+  async function handleCancel(jobId: string) {
+    if (!$session) return;
+    try {
+      await jobService.cancel(jobId, $session.userId);
+    } catch (e) {
+      console.error(e);
+    }
   }
 </script>
 
 <div class="jobs">
   <div class="head">
     <h3>Async Job Queue</h3>
-    <button on:click={demoBomCompare}>Enqueue BOM compare demo</button>
+    <span class="hint">
+      Jobs are triggered from Plan Workspace (BOM compare), Delivery Calendar
+      (bulk delivery generation), and Ledger (reconciliation).
+    </span>
   </div>
   <table>
     <thead>
@@ -48,10 +52,10 @@
           <td>
             {#if job.status === 'running'}
               <button on:click={() => jobService.pause(job.id)}>Pause</button>
-              <button on:click={() => jobService.cancel(job.id)}>Cancel</button>
+              <button on:click={() => handleCancel(job.id)}>Cancel</button>
             {:else if job.status === 'paused'}
               <button on:click={() => jobService.resume(job.id)}>Resume</button>
-              <button on:click={() => jobService.cancel(job.id)}>Cancel</button>
+              <button on:click={() => handleCancel(job.id)}>Cancel</button>
             {/if}
             {#if job.errorMessage}<span class="err">{job.errorMessage}</span>{/if}
           </td>
@@ -68,7 +72,7 @@
   .jobs { background: #fff; padding: 12px 16px; border-radius: 6px; }
   .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
   .head h3 { margin: 0; font-size: 15px; }
-  .head button { background: #2563eb; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; }
+  .hint { font-size: 12px; color: #6b7280; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { padding: 6px 10px; border-bottom: 1px solid #eee; text-align: left; }
   th { background: #f7f7f7; font-weight: 600; }

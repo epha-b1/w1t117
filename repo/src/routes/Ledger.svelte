@@ -6,7 +6,9 @@
   import InvoicePrint from '../components/ledger/InvoicePrint.svelte';
   import VoucherPrint from '../components/ledger/VoucherPrint.svelte';
   import { ledgerService } from '../services/ledger.service';
+  import { jobService } from '../services/job.service';
   import type { InvoiceData, LedgerAccount, LedgerEntry, VoucherData } from '../types/ledger.types';
+  import type { Job } from '../types/job.types';
   import { session, currentRole } from '../stores/session.store';
   import { pushToast } from '../stores/toast.store';
   import { formatCurrency, formatDate, maskBankRef } from '../utils/format';
@@ -34,6 +36,37 @@
   let voucherOpen = false;
 
   $: isReadOnly = $currentRole === 'auditor';
+
+  let reconcileJob: Job | null = null;
+  let reconcileReport: { accountTotals: Record<string, { deposits: number; settlements: number; refunds: number; withdrawals: number }>; count: number } | null = null;
+  let reconcilePollTimer: number | null = null;
+
+  async function startReconcile() {
+    if (!$session) return;
+    reconcileReport = null;
+    try {
+      const entries = await ledgerService.collectAllEntries($session.userId);
+      const job = await jobService.enqueue('ledger_reconcile', { entries }, $session.userId);
+      reconcileJob = job;
+      if (reconcilePollTimer) window.clearInterval(reconcilePollTimer);
+      reconcilePollTimer = window.setInterval(async () => {
+        const j = await jobService.getJob(job.id);
+        reconcileJob = j ?? null;
+        if (j && (j.status === 'completed' || j.status === 'failed')) {
+          window.clearInterval(reconcilePollTimer!);
+          reconcilePollTimer = null;
+          if (j.status === 'completed') {
+            reconcileReport = await jobService.getJobResult(j.id);
+            pushToast('Reconciliation complete', 'success');
+          } else {
+            pushToast(j.errorMessage ?? 'Reconciliation failed', 'error');
+          }
+        }
+      }, 150) as unknown as number;
+    } catch (e) {
+      pushToast((e as Error).message, 'error');
+    }
+  }
 
   async function refresh() {
     accounts = await ledgerService.listAccounts();
@@ -114,9 +147,22 @@
   <div class="toolbar">
     <div class="spacer"></div>
     {#if !isReadOnly}
+      <button on:click={startReconcile} data-testid="reconcile-btn">Reconcile ledger</button>
       <button class="primary" on:click={() => (createOpen = true)}>+ New account</button>
     {/if}
   </div>
+
+  {#if reconcileJob}
+    <div class="reconcile-status" data-testid="reconcile-status">
+      Reconciliation job: {reconcileJob.status} · {reconcileJob.progress}%
+      {#if reconcileReport}
+        <div class="report">
+          Reconciled {reconcileReport.count} entries across
+          {Object.keys(reconcileReport.accountTotals).length} account(s).
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   <table class="data-table">
     <thead>
@@ -256,4 +302,14 @@
   .drawer-actions { margin-top: 12px; display: flex; gap: 6px; }
   .drawer-actions button { padding: 6px 12px; border: 1px solid #d1d5db; background: #fff; cursor: pointer; border-radius: 4px; }
   button.link { background: transparent; border: none; color: #2563eb; cursor: pointer; padding: 0; font-size: 12px; }
+  .reconcile-status {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .report { font-size: 12px; margin-top: 4px; }
+  .toolbar button { padding: 6px 12px; border: 1px solid #d1d5db; background: #fff; border-radius: 4px; cursor: pointer; }
 </style>

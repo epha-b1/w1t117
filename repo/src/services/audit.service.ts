@@ -11,6 +11,16 @@ export interface AuditFilters {
 }
 
 const RETENTION_MS = 180 * 24 * 60 * 60 * 1000;
+export const AUDIT_RETENTION_MS = RETENTION_MS;
+
+export function matchesFilters(entry: AuditEntry, filters: AuditFilters): boolean {
+  if (filters.from != null && entry.timestamp < filters.from) return false;
+  if (filters.to != null && entry.timestamp > filters.to) return false;
+  if (filters.actor && entry.actor !== filters.actor) return false;
+  if (filters.action && entry.action !== filters.action) return false;
+  if (filters.resourceType && entry.resourceType !== filters.resourceType) return false;
+  return true;
+}
 
 export async function log(entry: Omit<AuditEntry, 'id' | 'timestamp'>): Promise<void> {
   const record: AuditEntry = {
@@ -33,14 +43,7 @@ export async function listEntries(filters: AuditFilters = {}): Promise<AuditEntr
     entries = await getAll('audit_log');
   }
   return entries
-    .filter((e) => {
-      if (filters.from != null && e.timestamp < filters.from) return false;
-      if (filters.to != null && e.timestamp > filters.to) return false;
-      if (filters.actor && e.actor !== filters.actor) return false;
-      if (filters.action && e.action !== filters.action) return false;
-      if (filters.resourceType && e.resourceType !== filters.resourceType) return false;
-      return true;
-    })
+    .filter((e) => matchesFilters(e, filters))
     .sort((a, b) => b.timestamp - a.timestamp);
 }
 

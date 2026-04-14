@@ -59,7 +59,15 @@ const STORE_DEFS: Array<{
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
-export function __resetForTests(): void {
+export async function __resetForTests(): Promise<void> {
+  if (dbPromise) {
+    try {
+      const db = await dbPromise;
+      db.close();
+    } catch {
+      /* noop */
+    }
+  }
   dbPromise = null;
 }
 
