@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 #
-# Cross-platform test runner.
-# - If Docker daemon is reachable, runs tests inside a Node container (works on
-#   any host regardless of local Node / npm state).
-# - Otherwise falls back to running locally with npm.
-# Works on Linux, macOS, WSL, and Git Bash on Windows.
+# Docker-only test runner. Fails fast if Docker or Docker Compose v2 is not
+# available. Tests execute exclusively inside the `test` compose target — no
+# host npm fallback, no host-side dependency resolution.
 #
 set -eu
 
@@ -12,39 +10,24 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-docker_ready() {
-  command -v docker >/dev/null 2>&1 || return 1
-  docker info >/dev/null 2>&1 || return 1
-  # Prefer `docker compose` (v2); fall back to docker-compose binary.
-  if docker compose version >/dev/null 2>&1; then
-    COMPOSE="docker compose"
-  elif command -v docker-compose >/dev/null 2>&1; then
-    COMPOSE="docker-compose"
-  else
-    return 1
-  fi
-  return 0
-}
-
-run_in_docker() {
-  echo "[run_tests] Docker daemon detected — running tests inside container."
-  $COMPOSE run --rm --build test
-}
-
-run_locally() {
-  echo "[run_tests] Docker unavailable — running tests locally."
-  if ! command -v npm >/dev/null 2>&1; then
-    echo "[run_tests] ERROR: neither Docker nor npm is available on this machine." >&2
-    exit 1
-  fi
-  if [ ! -d node_modules ]; then
-    npm install --no-audit --no-fund
-  fi
-  npm test
-}
-
-if docker_ready; then
-  run_in_docker
-else
-  run_locally
+if ! command -v docker >/dev/null 2>&1; then
+  echo "[run_tests] ERROR: 'docker' is not installed or not on PATH." >&2
+  echo "[run_tests] This project is Docker-only. Install Docker and retry." >&2
+  exit 2
 fi
+
+if ! docker info >/dev/null 2>&1; then
+  echo "[run_tests] ERROR: Docker daemon is not reachable." >&2
+  echo "[run_tests] Start the Docker daemon and retry." >&2
+  exit 2
+fi
+
+if ! docker compose version >/dev/null 2>&1; then
+  echo "[run_tests] ERROR: Docker Compose v2 plugin ('docker compose') is not installed." >&2
+  echo "[run_tests] This project is Docker-only and requires the v2 plugin." >&2
+  echo "[run_tests] See https://docs.docker.com/compose/install/ to install." >&2
+  exit 2
+fi
+
+echo "[run_tests] Running tests inside Docker Compose 'test' target."
+exec docker compose run --rm --build test

@@ -1,5 +1,7 @@
 # ForgeOps Fulfillment & Planning Console
 
+**Project Type:** web
+
 An offline-first, single-page web application for a fabrication-and-delivery team: lead intake with round-robin assignment, BOM-based plan management with versioning and share links, delivery scheduling with freight calculation and proof-of-delivery capture, an internal escrow ledger with invoice/voucher printing, in-app notifications with DND and retry, an append-only audit log, encrypted backup/restore, a pluggable delivery-API adapter with exportable local queue, and Web Worker-backed async jobs with checkpoint persistence. No backend. All persistence is via IndexedDB + LocalStorage in the browser.
 
 ## Architecture & Tech Stack
@@ -67,7 +69,7 @@ No `.env` file is required — the app has no backend and makes no network calls
 
 ## Testing
 
-All unit, integration, and component tests are executed via a single, standardized shell script. The script runs the full Vitest suite (jsdom + fake-indexeddb) inside the `test` compose target so the test environment matches the runtime environment.
+**Docker-only.** All unit, integration, and component tests execute exclusively inside the `test` compose target (the `run_tests.sh` script has no host-side npm fallback). The script fails fast with a non-zero exit code if Docker or Docker Compose v2 is not available.
 
 Make sure the script is executable, then run it:
 
@@ -76,17 +78,38 @@ chmod +x run_tests.sh
 ./run_tests.sh
 ```
 
-*Note: The `run_tests.sh` script outputs a standard exit code (`0` for success, non-zero for failure) to integrate smoothly with CI/CD validators.*
+What the script does:
+1. Verifies `docker` is on `PATH` — exits `2` otherwise.
+2. Verifies the Docker daemon is reachable — exits `2` otherwise.
+3. Verifies the `docker compose` v2 plugin is installed — exits `2` otherwise.
+4. Runs `docker compose run --rm --build test`, which executes `npm test` (Vitest + jsdom + fake-indexeddb) inside the container.
 
-## Seeded Credentials
+Exit code is `0` on test success, non-zero on test failure or missing Docker prerequisites. No `npm install` or `npm test` is ever executed on the host.
 
-On first run, the app seeds a single administrator account so the console is usable out of the box. A first-run banner prompts the administrator to change the password immediately. Additional users (sales coordinators, planners, dispatchers, auditors) are created from the **Users** page.
+## Demo Credentials (All Roles)
+
+> **Only the Administrator account is auto-seeded.** All other role accounts must be created by the administrator before the demo. Follow the exact steps below to provision a deterministic, testable set of credentials for every role.
+
+### 1. Auto-seeded account (available immediately after first launch)
 
 | Role | Username | Password | Notes |
 | :--- | :--- | :--- | :--- |
-| **Administrator** | `admin` | `Admin@12345` | Full access: user admin, permissions, backup/restore, audit log. Change on first login. |
+| **Administrator** | `admin` | `Admin@12345` | Full access: user admin, permissions, backup/restore, audit log. For the demo, dismiss the first-run password-change banner; for production, change immediately. |
 
-### Role reference
+### 2. Administrator must create the remaining four accounts
+
+**Exact UI path:** after logging in as `admin`, click **Users** in the left sidebar → click the **+ New user** button → fill the form → click **Create**. Repeat for each row below, using these exact sample credentials so the verification steps downstream are deterministic:
+
+| Role | Username | Password | Notes |
+| :--- | :--- | :--- | :--- |
+| **Sales Coordinator** | `sales1` | `Sales@12345` | Captures leads; receives round-robin assignments. |
+| **Planner** | `planner1` | `Planner@12345` | Manages plans, BOM items, versions, share links. |
+| **Dispatcher** | `dispatcher1` | `Dispatcher@12345` | Schedules deliveries, captures POD, logs exceptions. |
+| **Auditor** | `auditor1` | `Auditor@12345` | Read-only access to the Audit Log and Ledger. |
+
+After creation, each user can be logged in via the login screen using the username + password above. Passwords must be at least 8 characters — all samples satisfy that requirement.
+
+### Role capability reference
 
 | Role | Capabilities |
 | :--- | :--- |
@@ -97,6 +120,74 @@ On first run, the app seeds a single administrator account so the console is usa
 | **Auditor** | Read-only access to Audit Log and Ledger |
 
 RBAC is enforced in the service layer (`src/services/authz.service.ts`) at the top of every mutating call — route guards are kept as defence-in-depth but the service-layer check is authoritative. The action → permitted roles map lives in `ACTION_PERMISSIONS` in the same file.
+
+## Verification (Deterministic Smoke Test)
+
+This is a scripted, repeatable smoke test that exercises the critical user paths end-to-end. Run it after bringing up the stack (`docker compose up --build -d forgeops`) to confirm the application is functioning. Each step has an exact **Action** and **Expected Result**; stop and investigate at the first mismatch.
+
+All steps run in the browser against a client-side SPA — there is no backend to verify. State is persisted in the browser's IndexedDB for the active origin. To start from a clean slate, open DevTools → Application → Storage → **Clear site data** before step 1.
+
+### Step 1 — App loads
+
+* **Action:** Open `http://localhost:5000` in a modern browser (Chrome / Firefox / Edge).
+* **Expected Result:** The login screen renders with the ForgeOps logo, a "Username" field, a "Password" field, and a **Sign in** button. No console errors in DevTools.
+
+### Step 2 — Administrator login
+
+* **Action:** Enter username `admin`, password `Admin@12345`, click **Sign in**.
+* **Expected Result:** You are redirected to the application shell. The sidebar shows all navigation items (Lead Inbox, Plan Workspace, Delivery Calendar, Ledger, Notification Center, Audit Log, Users, Jobs). A first-run banner prompts for a password change — dismiss it to continue the smoke test.
+
+### Step 3 — Create the four non-admin accounts (one-time setup)
+
+* **Action:** Click **Users** in the sidebar. For each row in the "Demo Credentials" table above (`sales1`, `planner1`, `dispatcher1`, `auditor1`), click **+ New user**, enter the username / password / role exactly as listed, then click **Create**.
+* **Expected Result:** Each account appears in the user list with its role badge and `Active` status. Total user count on the page is `5` (admin + 4 new).
+
+### Step 4 — Sales Coordinator creates one lead
+
+* **Action:** Click the account menu → **Sign out**. Log in as `sales1` / `Sales@12345`. Click **Lead Inbox** → **+ New lead**. Fill:
+  * Title: `Smoke Test Lead 001`
+  * Customer name: `Acme Widgets`
+  * Recipient ZIP: `10001`
+  * Click **Create**.
+* **Expected Result:** A success toast appears. The new lead shows in the Lead Inbox table with status `New`, assigned to `sales1` (round-robin picks the sole active sales coordinator). A notification is recorded in the Notification Center bell.
+
+### Step 5 — Confirm lead appears in Lead Inbox for other roles
+
+* **Action:** Sign out. Log in as `admin`. Click **Lead Inbox**.
+* **Expected Result:** `Smoke Test Lead 001` is visible in the list with status `New`, assignee `sales1`, ZIP `10001`.
+
+### Step 6 — Planner promotes lead and creates a plan
+
+* **Action:** Still as `admin`, open the lead, change status to **Confirmed**, save. Sign out. Log in as `planner1` / `Planner@12345`. Click **Plan Workspace** → **+ New plan**. Fill:
+  * Title: `Smoke Test Plan 001`
+  * Click **Create**.
+* **Expected Result:** The plan is created and selected, showing an empty BOM table. The planner can add BOM items (skip in this smoke test unless needed).
+
+### Step 7 — Dispatcher schedules one delivery
+
+* **Action:** Sign out. Log in as `dispatcher1` / `Dispatcher@12345`. Click **Delivery Calendar** → **+ New delivery**. Fill:
+  * Recipient ZIP: `10001`
+  * Scheduled date: any weekday within coverage
+  * Time slot: `10:00`
+  * Click **Create**.
+* **Expected Result:** A success toast appears. Freight is auto-calculated (≥ $45). The delivery appears on the calendar in the chosen slot with status `Scheduled`.
+
+### Step 8 — Confirm delivery appears in calendar/status for other roles
+
+* **Action:** Sign out. Log in as `admin`. Click **Delivery Calendar**.
+* **Expected Result:** The delivery created in Step 7 is visible on the calendar at the scheduled date and time, with status `Scheduled` and the ZIP `10001`.
+
+### Step 9 — Auditor read-only enforcement
+
+* **Action:** Sign out. Log in as `auditor1` / `Auditor@12345`.
+* **Expected Result:** Sidebar shows only **Audit Log** and **Ledger**. Attempting any mutating action (e.g. creating a lead via deep link) is refused with an `AuthorizationError` toast — the service-layer RBAC rejects the call.
+
+### Step 10 — Tests pass inside Docker
+
+* **Action:** In a terminal at the repo root, run `./run_tests.sh`.
+* **Expected Result:** The script builds the `test` compose target, runs the full Vitest suite (unit, integration, component), and exits with code `0` after reporting `Test Files  N passed / Tests  M passed`.
+
+If every step matches its expected result, the application is verified.
 
 ## Feature Highlights
 
