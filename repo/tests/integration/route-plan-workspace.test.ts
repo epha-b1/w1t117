@@ -82,11 +82,18 @@ describe('PlanWorkspace route', () => {
     await fireEvent.submit(form);
 
     // Plan list refreshes — the new plan appears in a row.
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 200; i++) {
       if (container.textContent?.includes('My New Plan')) break;
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(container.textContent).toContain('My New Plan');
+    // The component fires pushToast AFTER refreshPlans + openPlan (a second
+    // async chain); the plan can appear in the DOM before the toast lands.
+    // Poll until both invariants hold.
+    for (let i = 0; i < 200; i++) {
+      if (get(toasts).some((t) => t.level === 'success' && /Plan created/.test(t.message))) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
     expect(get(toasts).some((t) => t.level === 'success' && /Plan created/.test(t.message))).toBe(true);
   });
 });

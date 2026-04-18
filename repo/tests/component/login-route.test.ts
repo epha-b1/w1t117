@@ -60,7 +60,7 @@ describe('<Login> route', () => {
 
   it('sets a friendly error message for bad credentials', async () => {
     await ensureFirstRunSeed();
-    const { container, findByRole, findByText } = render(Login);
+    const { container, findByRole } = render(Login);
     await findByRole('button', { name: /Sign in/i });
 
     const [usernameInput, passwordInput] = Array.from(
@@ -72,7 +72,13 @@ describe('<Login> route', () => {
     passwordInput.dispatchEvent(new Event('input', { bubbles: true }));
 
     await fireEvent.submit(container.querySelector('form')!);
-    await findByText('Invalid credentials');
+    // PBKDF2 verify is slow in jsdom; the default 1 s findByText timeout
+    // can expire before the error message lands. Poll for up to 3 s.
+    for (let i = 0; i < 300; i++) {
+      if (container.textContent?.includes('Invalid credentials')) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(container.textContent).toContain('Invalid credentials');
   });
 
   it('disables inputs and button when the anomaly cooldown is active', async () => {
