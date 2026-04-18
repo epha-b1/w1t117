@@ -68,7 +68,10 @@ describe('NotificationCenter route', () => {
     });
 
     const { container } = render(NotificationCenter);
-    await waitForText(container, 'Fab order 123');
+    // The list renders only `renderedSubject` ("Lead status changed" for
+    // the lead_status_default template) — the body with "Fab order 123"
+    // only appears in the detail modal on click. Assert on the subject.
+    await waitForText(container, 'Lead status changed');
   });
 
   it('does not render notifications addressed to a different user', async () => {

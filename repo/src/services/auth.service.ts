@@ -44,7 +44,18 @@ export async function ensureFirstRunSeed(): Promise<{ seeded: boolean }> {
     createdAt: now,
     updatedAt: now
   };
-  await put('users', admin);
+  try {
+    await put('users', admin);
+  } catch (e) {
+    // Concurrent caller (e.g. another onMount) already seeded the admin
+    // while our hash was still computing. Treat that as a no-op rather
+    // than surfacing a by_username unique-index ConstraintError — the
+    // invariant (admin exists) holds either way.
+    if ((e as { name?: string })?.name === 'ConstraintError') {
+      return { seeded: false };
+    }
+    throw e;
+  }
   await audit.log({
     actor: 'system',
     action: 'first_run_seed',
