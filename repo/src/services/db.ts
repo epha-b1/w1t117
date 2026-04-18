@@ -61,9 +61,26 @@ const STORE_DEFS: Array<{
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 export async function __resetForTests(): Promise<void> {
+  // Clear every store via fully-committed transactions *before* closing.
+  // Tests then get a guaranteed-empty DB regardless of whether the
+  // follow-up indexedDB.deleteDatabase() actually completes (fake-indexeddb
+  // often fires onblocked and returns without deleting, leaving data from
+  // the previous test — which caused ensureFirstRunSeed to silently report
+  // seeded:false and every "render seeded data" test to see empty stores).
   if (dbPromise) {
     try {
       const db = await dbPromise;
+      for (const def of STORE_DEFS) {
+        if (db.objectStoreNames.contains(def.name)) {
+          try {
+            const tx = db.transaction(def.name, 'readwrite');
+            await tx.store.clear();
+            await tx.done;
+          } catch {
+            /* store may be gone mid-teardown; ignore */
+          }
+        }
+      }
       db.close();
     } catch {
       /* noop */
