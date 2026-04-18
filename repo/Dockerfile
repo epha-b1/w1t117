@@ -4,7 +4,13 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Run npm ci and verify the install actually produced the test binary.
+# Without the `test -x` guard, an `npm ci` that exited non-zero (or hit the
+# npm 10.8.2 "Exit handler never called" bug on a flaky socket) can still
+# leave a partial node_modules that BuildKit will happily cache — and every
+# later build re-uses that broken layer until `docker builder prune` is run.
+RUN npm ci --no-audit --no-fund \
+ && test -x node_modules/.bin/vitest
 
 FROM node:20-alpine AS test
 WORKDIR /app
