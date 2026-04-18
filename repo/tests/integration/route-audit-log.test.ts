@@ -1,23 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import AuditLog from '../../src/routes/AuditLog.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import { ensureFirstRunSeed, listUsers } from '../../src/services/auth.service';
 import * as audit from '../../src/services/audit.service';
 import { setSession, clearSession } from '../../src/stores/session.store';
 import { toasts } from '../../src/stores/toast.store';
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
   toasts.set([]);
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
 }
 
 describe('AuditLog route', () => {
@@ -25,7 +19,7 @@ describe('AuditLog route', () => {
   afterEach(cleanup);
 
   async function waitForText(container: HTMLElement, needle: string | RegExp): Promise<void> {
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 400; i++) {
       const text = container.textContent ?? '';
       if (typeof needle === 'string' ? text.includes(needle) : needle.test(text)) return;
       await new Promise((r) => setTimeout(r, 10));

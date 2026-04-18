@@ -1,23 +1,37 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import NotificationCenter from '../../src/routes/NotificationCenter.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import { ensureFirstRunSeed, listUsers } from '../../src/services/auth.service';
 import { notificationService } from '../../src/services/notification.service';
 import { setSession, clearSession } from '../../src/stores/session.store';
 import { toasts } from '../../src/stores/toast.store';
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
   toasts.set([]);
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
+}
+
+// "Inbox" is ambiguous — it matches both the Sidebar's "Lead Inbox" link and
+// the page body's <h3>Inbox ...</h3>. Assert via a direct querySelector on h3
+// rather than findByText(/Inbox/).
+async function waitForInboxHeading(container: HTMLElement): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const h3s = Array.from(container.querySelectorAll('h3'));
+    if (h3s.some((h) => (h.textContent ?? '').trim().startsWith('Inbox'))) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error('waitForInboxHeading timed out');
+}
+
+async function waitForText(container: HTMLElement, needle: string): Promise<void> {
+  for (let i = 0; i < 300; i++) {
+    if ((container.textContent ?? '').includes(needle)) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error('waitForText timed out: ' + needle);
 }
 
 describe('NotificationCenter route', () => {
@@ -27,18 +41,14 @@ describe('NotificationCenter route', () => {
     vi.restoreAllMocks();
   });
 
-  // "Notifications" appears in both the sidebar link and the page title slot
-  // so we intentionally avoid matching by that text. Use the unambiguous
-  // `Inbox` heading inside the page body + the "No notifications" placeholder.
-
   it('renders the page heading and empty notification list', async () => {
     await ensureFirstRunSeed();
     const admin = (await listUsers()).find((u) => u.role === 'administrator')!;
     setSession({ userId: admin.id, username: admin.username, role: admin.role });
 
-    const { findByText } = render(NotificationCenter);
-    await findByText(/Inbox/);
-    await findByText('No notifications');
+    const { container } = render(NotificationCenter);
+    await waitForInboxHeading(container);
+    await waitForText(container, 'No notifications');
   });
 
   it('renders a dispatched notification for the signed-in user', async () => {
@@ -52,11 +62,7 @@ describe('NotificationCenter route', () => {
     });
 
     const { container } = render(NotificationCenter);
-    for (let i = 0; i < 60; i++) {
-      if (container.textContent?.includes('Fab order 123')) break;
-      await new Promise((r) => setTimeout(r, 10));
-    }
-    expect(container.textContent).toContain('Fab order 123');
+    await waitForText(container, 'Fab order 123');
   });
 
   it('does not render notifications addressed to a different user', async () => {
@@ -69,8 +75,8 @@ describe('NotificationCenter route', () => {
       status: 'new'
     });
 
-    const { container, findByText } = render(NotificationCenter);
-    await findByText(/Inbox/);
+    const { container } = render(NotificationCenter);
+    await waitForInboxHeading(container);
     await new Promise((r) => setTimeout(r, 50));
     expect(container.textContent).not.toContain('Hidden lead');
     expect(container.textContent).toContain('No notifications');

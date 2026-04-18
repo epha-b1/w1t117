@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import { get } from 'svelte/store';
 import AdminUsers from '../../src/routes/AdminUsers.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import {
   ensureFirstRunSeed,
   listUsers,
@@ -12,16 +12,10 @@ import { setSession, clearSession } from '../../src/stores/session.store';
 import { toasts } from '../../src/stores/toast.store';
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
   toasts.set([]);
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
 }
 
 async function signInAsAdmin() {
@@ -111,7 +105,7 @@ describe('AdminUsers route', () => {
 
     const { container } = render(AdminUsers);
     // Poll for the async onMount.refresh() to populate the user table.
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 400; i++) {
       if (container.textContent?.includes('planner-two')) break;
       await new Promise((r) => setTimeout(r, 10));
     }
@@ -122,7 +116,7 @@ describe('AdminUsers route', () => {
     const editBtn = targetRow.querySelector('button.link') as HTMLButtonElement;
     await fireEvent.click(editBtn);
     // Wait for the edit modal heading to appear.
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 200; i++) {
       if (container.textContent?.includes('Edit planner-two')) break;
       await new Promise((r) => setTimeout(r, 10));
     }

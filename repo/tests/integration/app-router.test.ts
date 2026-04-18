@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import App from '../../src/App.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import { ensureFirstRunSeed, register } from '../../src/services/auth.service';
 import { setSession, clearSession } from '../../src/stores/session.store';
 import { get } from 'svelte/store';
@@ -12,16 +12,10 @@ import { toasts } from '../../src/stores/toast.store';
 // hash to drive the router.
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
   toasts.set([]);
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
 }
 
 function setHash(path: string): void {
@@ -77,13 +71,17 @@ describe('App — hash-based routing integration', () => {
     setSession({ userId: admin.id, username: admin.username, role: admin.role });
 
     setHash('/');
-    const { findByText } = render(App);
+    const { container } = render(App);
 
     // Admins default to /leads. App.svelte resolves the route *in memory* —
     // it does not navigate the URL — so the assertion is on the rendered
-    // route, not on the hash. `Lead Inbox` is the Sidebar/AppShell heading
-    // that LeadInbox's AppShell exposes.
-    await findByText('Lead Inbox');
+    // route, not on the hash. "No leads match the current filters" is the
+    // LeadInbox empty-state placeholder text, uniquely found on that page.
+    for (let i = 0; i < 300; i++) {
+      if (container.textContent?.includes('No leads match the current filters')) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(container.textContent).toContain('No leads match the current filters');
   });
 
   it('auditor hitting a forbidden area is redirected to /audit and sees a warning toast', async () => {
@@ -140,18 +138,20 @@ describe('App — hash-based routing integration', () => {
     setSession({ userId: admin.id, username: admin.username, role: admin.role });
 
     setHash('/leads');
-    // Install fake timers AFTER session setup so async IDB calls above run
-    // on real timers (safer than advancing through a long-lived async chain).
-    vi.useFakeTimers();
+    // Install fake timers BEFORE render so the setTimeout in App.svelte's
+    // onMount(resetIdle) is scheduled on the fake clock. Leave Date/IDB alone
+    // — we only need to fake setTimeout/clearTimeout.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
     render(App);
 
-    // Let onMount schedule the idle timer.
-    await vi.advanceTimersByTimeAsync(10);
+    // Flush microtasks so onMount runs and registers the idle setTimeout.
+    for (let i = 0; i < 5; i++) await Promise.resolve();
     // Fast-forward past the 15-minute idle timeout.
     await vi.advanceTimersByTimeAsync(15 * 60 * 1000 + 1000);
     vi.useRealTimers();
-    // Let any queued microtasks from the timer callback finish.
-    await tick(20);
+    // Let any queued microtasks from the timer callback finish (including
+    // the hashchange event handler that updates currentPath).
+    await tick(50);
 
     expect(window.location.hash).toBe('#/login');
   });

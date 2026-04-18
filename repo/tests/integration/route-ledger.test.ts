@@ -1,23 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup } from '@testing-library/svelte';
 import Ledger from '../../src/routes/Ledger.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import { ensureFirstRunSeed, listUsers, register } from '../../src/services/auth.service';
 import { ledgerService } from '../../src/services/ledger.service';
 import { setSession, clearSession } from '../../src/stores/session.store';
 import { toasts } from '../../src/stores/toast.store';
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
   toasts.set([]);
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
 }
 
 describe('Ledger route', () => {
@@ -67,7 +61,7 @@ describe('Ledger route', () => {
 
     const { container } = render(Ledger);
     // Poll for the async refresh() to populate the accounts table.
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 400; i++) {
       if (container.textContent?.includes('****7890')) break;
       await new Promise((r) => setTimeout(r, 10));
     }

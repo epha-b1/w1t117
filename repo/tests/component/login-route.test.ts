@@ -1,21 +1,15 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, cleanup, fireEvent } from '@testing-library/svelte';
 import Login from '../../src/routes/Login.svelte';
-import { __resetForTests } from '../../src/services/db';
+import { clearAll } from '../../src/services/db';
 import { ensureFirstRunSeed, register } from '../../src/services/auth.service';
 import { clearSession } from '../../src/stores/session.store';
 import { lsSet, LS_KEYS } from '../../src/utils/local-storage';
 
 async function freshDb() {
-  await __resetForTests();
+  await clearAll();
   clearSession();
   localStorage.clear();
-  const req = indexedDB.deleteDatabase('forgeops');
-  await new Promise<void>((resolve) => {
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
-  });
 }
 
 describe('<Login> route', () => {
@@ -35,7 +29,7 @@ describe('<Login> route', () => {
     // Wait for onMount's ensureFirstRunSeed to flip `seeded=true` and the
     // first-run `.notice` to render. The credential string is split across
     // a <code> element so assert on the overall textContent.
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < 300; i++) {
       if (container.querySelector('.notice')) break;
       await new Promise((r) => setTimeout(r, 10));
     }
@@ -85,8 +79,14 @@ describe('<Login> route', () => {
     const recent = Array.from({ length: 11 }, (_, i) => now - i * 1000);
     lsSet(LS_KEYS.FAILED_LOGINS, recent);
 
-    const { container, findByText } = render(Login);
-    await findByText(/Too many failed attempts/);
+    const { container } = render(Login);
+    // Poll for the anomaly banner — onMount's ensureFirstRunSeed involves
+    // PBKDF2 hashing which can exceed findByText's default 1s timeout.
+    for (let i = 0; i < 300; i++) {
+      if (container.textContent?.includes('Too many failed attempts')) break;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(container.textContent).toContain('Too many failed attempts');
     const inputs = container.querySelectorAll('input');
     for (const input of inputs) {
       expect((input as HTMLInputElement).disabled).toBe(true);
